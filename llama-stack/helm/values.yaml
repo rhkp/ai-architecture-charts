@@ -37,7 +37,7 @@ service:
 command:
   - python
   - -m
-  - llama_stack.distribution.server.server
+  - llama_stack.core.server.server
   - /app-config/config.yaml
 env:
   - name: VLLM_MAX_TOKENS
@@ -104,6 +104,15 @@ tolerations: []
 
 affinity: {}
 
+gcpServiceAccount:
+  name: gcp-service-account
+  mountPath: /var/secrets/gcp-service-account.json
+
+vertexai:
+  enabled: false
+  #projectId:
+  #location:
+
 secrets: {}
 mcp-servers: {}
 models:
@@ -130,6 +139,19 @@ models:
   llama-3-2-1b-instruct-quantized:
     id: RedHatAI/Llama-3.2-1B-Instruct-quantized.w8a8
     enabled: false
+
+providers:
+  agents:
+    - provider_id: meta-reference
+      provider_type: inline::meta-reference
+      config:
+        persistence_store:
+          type: sqlite
+          namespace: null
+          db_path: ${env.SQLITE_STORE_DIR:=~/.llama/distributions/starter}/agents_store.db
+        responses_store:
+          type: sqlite
+          db_path: ${env.SQLITE_STORE_DIR:=~/.llama/distributions/starter}/responses_store.db
 
 auth: {}
 # auth:

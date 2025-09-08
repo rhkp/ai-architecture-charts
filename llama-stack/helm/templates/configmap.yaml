@@ -38,6 +38,13 @@ data:
           tls_verify: {{ $model.tlsVerify | default false }}
       {{- end }}
       {{- end }}
+      {{- if .Values.vertexai.enabled }}
+      - provider_id: {{ .Values.vertexai.projectId }}-vertexai
+        provider_type: remote::vertexai
+        config:
+          project: {{ .Values.vertexai.projectId }}
+          location: {{ .Values.vertexai.location }}
+      {{- end }}
       - provider_id: sentence-transformers
         provider_type: inline::sentence-transformers
         config: {}
@@ -58,16 +65,9 @@ data:
         provider_type: inline::llama-guard
         config: {}
       agents:
-      - provider_id: meta-reference
-        provider_type: inline::meta-reference
-        config:
-          persistence_store:
-            type: sqlite
-            namespace: null
-            db_path: ${env.SQLITE_STORE_DIR:=~/.llama/distributions/starter}/agents_store.db
-          responses_store:
-            type: sqlite
-            db_path: ${env.SQLITE_STORE_DIR:=~/.llama/distributions/starter}/responses_store.db
+      {{- with .Values.providers.agents }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
       eval:
       - provider_id: meta-reference
         provider_type: inline::meta-reference
@@ -174,5 +174,5 @@ data:
         {{- with .Values.auth.access_policy }}
         access_policy:
           {{- toYaml . | nindent 8 }}
-        {{- end }}        
+        {{- end }}
     {{- end }}

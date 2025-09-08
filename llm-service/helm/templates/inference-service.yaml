@@ -2,6 +2,8 @@
 {{- $models := include "llm-service.mergeModels" . | fromJson }}
 {{- range $key, $model := $models }}
 {{- if and $model.enabled (not $model.url) }}
+{{- $modelDevice := $model.device | default $root.Values.device }}
+{{- $deviceConfig := index $root.Values.deviceConfigs $modelDevice }}
 ---
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
@@ -18,6 +20,7 @@ metadata:
   labels:
     opendatahub.io/dashboard: "true"
     networking.knative.dev/visibility: "cluster-local"
+    device: {{ $modelDevice }}
 spec:
   predictor:
     maxReplicas: {{ $model.maxReplicas | default 1 }}
@@ -26,23 +29,62 @@ spec:
       modelFormat:
         name: vLLM
       name: ""
-      resources:
       {{- if hasKey $model "resources" }}
-      {{- toYaml $model.resources | nindent 8 }}
-      {{- else }}
-      {{- if eq $root.Values.device "gpu" }}
+      resources:
+        {{- if or (eq $modelDevice "gpu") (eq $modelDevice "hpu") }}
+          {{- $acceleratorType := $deviceConfig.acceleratorType }}
+          {{- $acceleratorCount := $model.accelerators | default "1" }}
+          {{- $customResources := $model.resources | deepCopy }}
+          {{- if $acceleratorType }}
+            {{- if not (hasKey $customResources.limits $acceleratorType) }}
+              {{- $_ := set $customResources.limits $acceleratorType $acceleratorCount }}
+            {{- end }}
+            {{- if not (hasKey $customResources.requests $acceleratorType) }}
+              {{- $_ := set $customResources.requests $acceleratorType $acceleratorCount }}
+            {{- end }}
+          {{- end }}
+          {{- toYaml $customResources | nindent 8 }}
+        {{- else }}
+          {{- toYaml $model.resources | nindent 8 }}
+        {{- end }}
+      {{- else if or (eq $modelDevice "gpu") (eq $modelDevice "hpu") }}
+      resources:
+        {{- $acceleratorType := $deviceConfig.acceleratorType }}
+        {{- $acceleratorCount := $model.accelerators | default "1" }}
         limits:
           cpu: "2"
           memory: 8Gi
-          nvidia.com/gpu: "1"
+          {{- if $acceleratorType }}
+          {{ $acceleratorType }}: {{ $acceleratorCount | quote }}
+          {{- end }}
+          {{- if $model.storageSize }}
+          ephemeral-storage: {{ $model.storageSize | default "50Gi" }}
+          {{- end }}
         requests:
           cpu: "1"
           memory: 4Gi
-          nvidia.com/gpu: "1"
+          {{- if $acceleratorType }}
+          {{ $acceleratorType }}: {{ $acceleratorCount | quote }}
+          {{- end }}
+          {{- if $model.storageSize }}
           ephemeral-storage: {{ $model.storageSize | default "50Gi" }}
+          {{- end }}
+      {{- else }}
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+          {{- if $model.storageSize }}
+          ephemeral-storage: {{ $model.storageSize | default "50Gi" }}
+          {{- end }}
+        requests:
+          cpu: "1"
+          memory: 4Gi
+          {{- if $model.storageSize }}
+          ephemeral-storage: {{ $model.storageSize | default "50Gi" }}
+          {{- end }}
       {{- end }}
-      {{- end }}
-      runtime: {{ $root.Values.servingRuntime.name }}
+      runtime: {{ $root.Values.servingRuntime.name }}-{{ $modelDevice }}
       args:
       - --model
       - {{ $model.id }}
@@ -55,13 +97,16 @@ spec:
       env:
         {{- toYaml . | nindent 6 }}
       {{- end }}
-    tolerations:
+    {{- $tolerations := list }}
     {{- if hasKey $model "tolerations" }}
-    {{- toYaml $model.tolerations | nindent 4 }}
-    {{- else }}
-    - key: nvidia.com/gpu
-      effect: NoSchedule
-      operator: Exists
+      {{- $tolerations = $model.tolerations }}
+    {{- else if $deviceConfig.tolerations }}
+      {{- $tolerations = $deviceConfig.tolerations }}
+    {{- end }}
+    {{- if $tolerations }}
+    tolerations:
+    {{- toYaml $tolerations | nindent 4 }}
     {{- end }}
 {{- end }}
 {{- end }}
+

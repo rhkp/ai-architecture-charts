@@ -4,7 +4,7 @@ from typing import Optional
 from . import tasks
 
 
-def s3_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
+def s3_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str, sign_db: str):
     @dsl.pipeline(name="fetch-and-store-pipeline")
     def _pipeline():
         from kfp import kubernetes
@@ -20,8 +20,11 @@ def s3_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
                 'REGION': 'REGION'
         }
 
+        pipeline_tasks=[]
+
         fetch_task = tasks.fetch_from_s3()
         fetch_task.set_caching_options(False)
+        pipeline_tasks.append(fetch_task)
 
         store_task = tasks.store_documents(
             llamastack_base_url=llamastack_base_url,
@@ -29,8 +32,17 @@ def s3_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
             auth_user=auth_user
         )
         store_task.set_caching_options(False)
+        pipeline_tasks.append(store_task)
 
-        for task in (fetch_task, store_task):
+        if sign_db == "true":
+            provenance_task = tasks.generate_provenance(
+                input_dir=fetch_task.outputs["output_dir"]
+            )
+            provenance_task.set_caching_options(False)
+            provenance_task.after(store_task)
+            pipeline_tasks.append(provenance_task)
+
+        for task in pipeline_tasks:
             kubernetes.use_secret_as_env(
                 task=task,
                 secret_name=pipeline_name,
@@ -39,7 +51,7 @@ def s3_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
     return _pipeline
 
 
-def url_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
+def url_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str, sign_db: str):
     @dsl.pipeline(name="fetch-and-store-pipeline")
     def _pipeline():
         from kfp import kubernetes
@@ -69,7 +81,7 @@ def url_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
     return _pipeline
 
 
-def github_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str):
+def github_pipeline(pipeline_name: str, llamastack_base_url: str, auth_user: str, sign_db: str):
     @dsl.pipeline(name="fetch-and-store-pipeline")
     def _pipeline():
         from kfp import kubernetes
