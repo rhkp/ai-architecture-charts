@@ -1,9 +1,6 @@
 """TPC-DS synthetic data generation utilities."""
 
-from pathlib import Path
 from typing import Optional
-
-import click
 from rich.console import Console
 
 from .config import config_manager

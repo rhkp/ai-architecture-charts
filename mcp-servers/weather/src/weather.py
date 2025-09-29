@@ -1,4 +1,5 @@
 from typing import Any
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -57,6 +58,7 @@ def format_alert(feature: dict) -> str:
         Instructions: {props.get('instruction', 'No specific instructions provided')}
     """
 
+
 @mcp.tool()
 async def get_alerts(state: str) -> str:
     """Get weather alerts for a US state.
@@ -75,6 +77,7 @@ async def get_alerts(state: str) -> str:
 
     alerts = [format_alert(feature) for feature in data["features"]]
     return "\n---\n".join(alerts)
+
 
 @mcp.tool()
 async def get_forecast(latitude: str, longitude: str) -> str:
@@ -112,6 +115,7 @@ async def get_forecast(latitude: str, longitude: str) -> str:
 
     return "\n---\n".join(forecasts)
 
+
 if __name__ == "__main__":
     # Initialize and run the server
-    mcp.run(transport='sse')
+    mcp.run(transport="sse")

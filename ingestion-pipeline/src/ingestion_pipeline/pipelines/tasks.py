@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 from kfp import dsl
 
@@ -9,6 +8,7 @@ BASE_IMAGE = os.environ["INGESTION_PIPELINE_IMAGE"]
 @dsl.component(base_image=BASE_IMAGE)
 def fetch_from_s3(output_dir: dsl.OutputPath()):
     import os
+
     import boto3
 
     # S3 Config
@@ -65,6 +65,7 @@ def fetch_from_github(output_dir: dsl.OutputPath()):
     import os
     import shutil
     import tempfile
+
     import git
 
     os.makedirs(output_dir, exist_ok=True)
@@ -107,9 +108,11 @@ def fetch_from_github(output_dir: dsl.OutputPath()):
 
 
 @dsl.component(base_image=BASE_IMAGE)
-def store_documents(llamastack_base_url: str, input_dir: dsl.InputPath(), auth_user: str):
-    import os
+def store_documents(
+    llamastack_base_url: str, input_dir: dsl.InputPath(), auth_user: str
+):
     import asyncio
+    import os
     from pathlib import Path
 
     from docling.datamodel.base_models import InputFormat
@@ -210,12 +213,12 @@ def store_documents(llamastack_base_url: str, input_dir: dsl.InputPath(), auth_u
     # Step 3: Register vector database and store chunks with embeddings
     headers = {}
     if auth_user:
-        headers={"X-Forwarded-User": auth_user}
+        headers = {"X-Forwarded-User": auth_user}
         file_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
         try:
             with open(file_path, "r") as file:
                 token = file.read()
-                headers["Authorization"]=f"Bearer {token}"
+                headers["Authorization"] = f"Bearer {token}"
         except FileNotFoundError:
             print(f"Error: The file '{file_path}' was not found.")
         except Exception as e:
@@ -227,12 +230,14 @@ def store_documents(llamastack_base_url: str, input_dir: dsl.InputPath(), auth_u
     )
     print("Creating vector store")
     try:
-        vector_store = asyncio.run(client.vector_stores.create(
-            name=vector_store_name,
-            embedding_model=embedding_model,
-            embedding_dimension=384,
-            provider_id="pgvector",
-        ))
+        vector_store = asyncio.run(
+            client.vector_stores.create(
+                name=vector_store_name,
+                embedding_model=embedding_model,
+                embedding_dimension=384,
+                provider_id="pgvector",
+            )
+        )
         vector_store_id = vector_store.id
         print(f"Vector store created successfully with ID: {vector_store_id}")
     except Exception as e:
@@ -242,44 +247,52 @@ def store_documents(llamastack_base_url: str, input_dir: dsl.InputPath(), auth_u
 
     try:
         print(f"Processing {total_chunks} chunks for vector store insertion")
-        import tempfile
         import json
+        import tempfile
 
         # Create temporary files for each document chunk and upload them
         uploaded_files = []
         for i, doc in enumerate(llama_documents):
             # Create a temporary file for each chunk
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False
+            ) as temp_file:
                 # Write the document content to the file
                 temp_file.write(doc.content)
                 temp_file_path = temp_file.name
 
             try:
                 # Upload the file to the Files API
-                with open(temp_file_path, 'rb') as file_content:
-                    file_response = asyncio.run(client.files.create(
-                        file=file_content,
-                        purpose="assistants"
-                    ))
+                with open(temp_file_path, "rb") as file_content:
+                    file_response = asyncio.run(
+                        client.files.create(file=file_content, purpose="assistants")
+                    )
 
                 # Attach the file to the vector store
-                file_attach_response = asyncio.run(client.vector_stores.files.create(
-                    vector_store_id=vector_store_id,
-                    file_id=file_response.id,
-                    attributes=doc.metadata,
-                ))
+                file_attach_response = asyncio.run(
+                    client.vector_stores.files.create(
+                        vector_store_id=vector_store_id,
+                        file_id=file_response.id,
+                        attributes=doc.metadata,
+                    )
+                )
 
-                uploaded_files.append({
-                    'file_id': file_response.id,
-                    'attach_response': file_attach_response,
-                    'source': doc.metadata.get('source', f'chunk-{i}')
-                })
+                uploaded_files.append(
+                    {
+                        "file_id": file_response.id,
+                        "attach_response": file_attach_response,
+                        "source": doc.metadata.get("source", f"chunk-{i}"),
+                    }
+                )
 
-                print(f"Uploaded and attached file {i+1}/{total_chunks}: {doc.metadata.get('source', f'chunk-{i}')}")
+                print(
+                    f"Uploaded and attached file {i+1}/{total_chunks}: {doc.metadata.get('source', f'chunk-{i}')}"
+                )
 
             finally:
                 # Clean up temporary file
                 import os
+
                 try:
                     os.unlink(temp_file_path)
                 except:
@@ -288,27 +301,35 @@ def store_documents(llamastack_base_url: str, input_dir: dsl.InputPath(), auth_u
         # Wait for all files to be processed
         print("Waiting for all files to be processed...")
         import time
+
         for file_info in uploaded_files:
             while True:
-                status_response = asyncio.run(client.vector_stores.files.retrieve(
-                    vector_store_id=vector_store_id,
-                    file_id=file_info['file_id']
-                ))
+                status_response = asyncio.run(
+                    client.vector_stores.files.retrieve(
+                        vector_store_id=vector_store_id, file_id=file_info["file_id"]
+                    )
+                )
 
                 if status_response.status == "completed":
                     print(f"File {file_info['source']} processed successfully")
                     break
                 elif status_response.status == "failed":
-                    print(f"Warning: File {file_info['source']} failed to process: {status_response.last_error}")
+                    print(
+                        f"Warning: File {file_info['source']} failed to process: {status_response.last_error}"
+                    )
                     break
                 elif status_response.status == "in_progress":
                     print(f"File {file_info['source']} still processing...")
                     time.sleep(1)
                 else:
-                    print(f"Unknown status for file {file_info['source']}: {status_response.status}")
+                    print(
+                        f"Unknown status for file {file_info['source']}: {status_response.status}"
+                    )
                     break
 
-        print(f"Successfully uploaded and processed {len(uploaded_files)} files to vector store")
+        print(
+            f"Successfully uploaded and processed {len(uploaded_files)} files to vector store"
+        )
 
     except Exception as e:
         print("Vector store insertion failed:", e)
@@ -321,15 +342,15 @@ def generate_provenance(input_dir: dsl.InputPath()):
     import datetime
     import gzip
     import hashlib
-    import json
-    import llama_stack_client
     import io
+    import json
     import os
-    import requests
     import subprocess
-
-    from kubernetes import client, config, stream
     from pathlib import Path
+
+    import llama_stack_client
+    import requests
+    from kubernetes import client, config, stream
 
     # Connect to the cluster
     config.load_incluster_config()
@@ -342,7 +363,7 @@ def generate_provenance(input_dir: dsl.InputPath()):
                 "externalParameters": {},
                 "internalParameters": {
                     "environment": {
-                        "embedding_model": os.getenv('EMBEDDING_MODEL'),
+                        "embedding_model": os.getenv("EMBEDDING_MODEL"),
                         "llama_stack_client": f"{llama_stack_client.__version__}",
                     },
                 },
@@ -356,13 +377,13 @@ def generate_provenance(input_dir: dsl.InputPath()):
         }
 
     def get_db_sha() -> str:
-        secret_name="pgvector" # Needs to be hardcoded for the moment
+        secret_name = "pgvector"  # Needs to be hardcoded for the moment
 
         with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
             namespace = f.read().strip()
         secret = client.CoreV1Api().read_namespaced_secret(secret_name, namespace)
         container = base64.b64decode(secret.data["host"]).decode("utf-8")
-        db_name=base64.b64decode(secret.data["dbname"]).decode("utf-8")
+        db_name = base64.b64decode(secret.data["dbname"]).decode("utf-8")
         db_username = base64.b64decode(secret.data["user"]).decode("utf-8")
         pod = f"{container}-0"
 
@@ -388,7 +409,7 @@ def generate_provenance(input_dir: dsl.InputPath()):
 
     def get_sources_sha():
         chunk_size = 2**20
-        files=[p for p in Path(input_dir).iterdir() if p.is_file()]
+        files = [p for p in Path(input_dir).iterdir() if p.is_file()]
         for file in files:
             shasum = hashlib.sha512()
             with file.open("rb") as f:
@@ -406,7 +427,7 @@ def generate_provenance(input_dir: dsl.InputPath()):
             version="v1",
             namespace="trusted-artifact-signer",
             plural="routes",
-            label_selector="app.kubernetes.io/component=client-server"
+            label_selector="app.kubernetes.io/component=client-server",
         )
         host = route["items"][0]["spec"]["host"]
         url = f"https://{host}/clients/linux/cosign-amd64.gz"
@@ -425,32 +446,35 @@ def generate_provenance(input_dir: dsl.InputPath()):
             f.write(decompressed)
         os.chmod(bin_path, 0o755)
 
-
         # Get TUF URL
         route = client.CustomObjectsApi().list_namespaced_custom_object(
             group="route.openshift.io",
             version="v1",
             namespace="trusted-artifact-signer",
             plural="routes",
-            label_selector="app.kubernetes.io/component=tuf"
+            label_selector="app.kubernetes.io/component=tuf",
         )
-        tuf_url=f"https://{route["items"][0]["spec"]["host"]}"
-        root_path=f"{tuf_url}/root.json"
+        tuf_url = f"https://{route["items"][0]["spec"]["host"]}"
+        root_path = f"{tuf_url}/root.json"
 
         # Workaroud for broken TAS
-        tuf_url="https://tuf-repo-cdn.sigstage.dev"
-        response = requests.get("https://raw.githubusercontent.com/sigstore/root-signing-staging/main/metadata/root_history/1.root.json")
+        tuf_url = "https://tuf-repo-cdn.sigstage.dev"
+        response = requests.get(
+            "https://raw.githubusercontent.com/sigstore/root-signing-staging/main/metadata/root_history/1.root.json"
+        )
         response.raise_for_status()
-        root_path="/tmp/tuf-root.json"
+        root_path = "/tmp/tuf-root.json"
         with open(root_path, "wb") as f:
             f.write(response.content)
 
-        run_cosign([
-            bin_path,
-            "initialize",
-            f"--mirror={tuf_url}",
-            f"--root={root_path}",
-        ])
+        run_cosign(
+            [
+                bin_path,
+                "initialize",
+                f"--mirror={tuf_url}",
+                f"--root={root_path}",
+            ]
+        )
 
         return bin_path
 
@@ -460,13 +484,15 @@ def generate_provenance(input_dir: dsl.InputPath()):
             version="v1",
             namespace="trusted-artifact-signer",
             plural="routes",
-            label_selector="app.kubernetes.io/component=rekor-server"
+            label_selector="app.kubernetes.io/component=rekor-server",
         )
         host = route["items"][0]["spec"]["host"]
         return f"https://{host}"
 
     def get_signing_key() -> str:
-        secret = client.CoreV1Api().read_namespaced_secret("signing-secrets", "openshift-pipelines")
+        secret = client.CoreV1Api().read_namespaced_secret(
+            "signing-secrets", "openshift-pipelines"
+        )
         key = base64.b64decode(secret.data["cosign.key"]).decode("utf-8")
         password = base64.b64decode(secret.data["cosign.password"]).decode("utf-8")
         return (key, password)
@@ -482,7 +508,7 @@ def generate_provenance(input_dir: dsl.InputPath()):
                 "COSIGN_PASSWORD": cosign_password,
                 "HOME": "/tmp",
             },
-            text=True
+            text=True,
         )
         if result.returncode != 0:
             print("Output:")
@@ -506,20 +532,22 @@ def generate_provenance(input_dir: dsl.InputPath()):
         print()
         print("Attesting blob")
         blob_path = "/tmp/db.sha512sum"
-        blob_data=f"att:{blob}"
+        blob_data = f"att:{blob}"
         with open(blob_path, "w") as f:
             f.write(blob_data)
-        run_cosign([
-            bin_path,
-            "attest-blob",
-            blob_path,
-            "--key=env://COSIGN_KEY",
-            "--predicate="+predicate_path,
-            "--rekor-entry-type=intoto",
-            "--rekor-url="+rekor_url,
-            "--type=slsaprovenance1",
-            "-y",
-        ])
+        run_cosign(
+            [
+                bin_path,
+                "attest-blob",
+                blob_path,
+                "--key=env://COSIGN_KEY",
+                "--predicate=" + predicate_path,
+                "--rekor-entry-type=intoto",
+                "--rekor-url=" + rekor_url,
+                "--type=slsaprovenance1",
+                "-y",
+            ]
+        )
         shasum = hashlib.sha256()
         shasum.update(blob_data.encode())
         att_sha = shasum.hexdigest()
@@ -527,17 +555,19 @@ def generate_provenance(input_dir: dsl.InputPath()):
         print()
         print("Signing blob")
         blob_path = "/tmp/db.sha512sum"
-        blob_data=f"sig:{blob}"
+        blob_data = f"sig:{blob}"
         with open(blob_path, "w") as f:
             f.write(blob_data)
-        run_cosign([
-            bin_path,
-            "sign-blob",
-            blob_path,
-            "--key=env://COSIGN_KEY",
-            "--rekor-url="+rekor_url,
-            "-y",
-        ])
+        run_cosign(
+            [
+                bin_path,
+                "sign-blob",
+                blob_path,
+                "--key=env://COSIGN_KEY",
+                "--rekor-url=" + rekor_url,
+                "-y",
+            ]
+        )
         shasum = hashlib.sha256()
         shasum.update(blob_data.encode())
         sig_sha = shasum.hexdigest()

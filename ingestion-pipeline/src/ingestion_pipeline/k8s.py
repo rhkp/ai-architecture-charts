@@ -8,12 +8,12 @@ from .models import BaseSourceModel
 
 def normalize_name(name: str, max_length: int = 253) -> str:
     name = name.lower()
-    name = re.sub(r'[^a-z0-9-]', '-', name)
-    name = re.sub(r'-+', '-', name)
+    name = re.sub(r"[^a-z0-9-]", "-", name)
+    name = re.sub(r"-+", "-", name)
     if len(name) > max_length:
-        name = name[:max_length].rstrip('-')
-    name = re.sub(r'^[^a-z0-9]+', '', name)
-    name = re.sub(r'[^a-z0-9]+$', '', name)
+        name = name[:max_length].rstrip("-")
+    name = re.sub(r"^[^a-z0-9]+", "", name)
+    name = re.sub(r"[^a-z0-9]+$", "", name)
     return name
 
 
@@ -25,7 +25,9 @@ def get_incluster_namespace(default: str = "default") -> str:
         return default
 
 
-def model_to_k8s_secret(model: BaseSourceModel, namespace: str = None) -> client.V1Secret:
+def model_to_k8s_secret(
+    model: BaseSourceModel, namespace: str = None
+) -> client.V1Secret:
     namespace = namespace or get_incluster_namespace()
 
     encoded_data = {
@@ -37,15 +39,16 @@ def model_to_k8s_secret(model: BaseSourceModel, namespace: str = None) -> client
         api_version="v1",
         kind="Secret",
         metadata=client.V1ObjectMeta(
-            name=normalize_name(model.pipeline_name()),
-            namespace=namespace
+            name=normalize_name(model.pipeline_name()), namespace=namespace
         ),
         type="Opaque",
         data=encoded_data,
     )
 
 
-def apply_model_as_secret(model: BaseSourceModel, namespace: str = None, replace: bool = False) -> str:
+def apply_model_as_secret(
+    model: BaseSourceModel, namespace: str = None, replace: bool = False
+) -> str:
     try:
         config.load_incluster_config()
     except config.config_exception.ConfigException:
@@ -55,17 +58,14 @@ def apply_model_as_secret(model: BaseSourceModel, namespace: str = None, replace
 
     api = client.CoreV1Api()
     try:
-        api.create_namespaced_secret(
-            namespace=secret.metadata.namespace,
-            body=secret
-        )
+        api.create_namespaced_secret(namespace=secret.metadata.namespace, body=secret)
         return secret.metadata.name
     except client.exceptions.ApiException as e:
         if e.status == 409 and replace:
             api.replace_namespaced_secret(
                 name=secret.metadata.name,
                 namespace=secret.metadata.namespace,
-                body=secret
+                body=secret,
             )
             return secret.metadata.name
         else:
@@ -86,5 +86,6 @@ def delete_k8s_secret(secret_name: str, namespace: str = None) -> bool:
         return True
     except client.exceptions.ApiException as e:
         import traceback
+
         traceback.print_exc()
         return False
